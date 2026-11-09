@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GeoQuest Leeuwarden Real-GPS</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        body, html {
+            height: 100%;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background: #111;
+            color: white;
+        }
+        #radar-screen {
+            flex: 1;
+            width: 100%;
+            height: 55vh;
+            position: relative;
+            background: radial-gradient(circle, #1a3a1a 0%, #051a05 70%, #000 100%);
+            border-bottom: 3px solid #2e7d32;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .radar-ring {
+            position: absolute;
+            border: 1px solid rgba(76, 175, 80, 0.2);
+            border-radius: 50%;
+        }
+        .ring-1 { width: 150px; height: 150px; }
+        .ring-2 { width: 300px; height: 300px; }
+        .ring-3 { width: 450px; height: 450px; }
+        
+        .radar-line-h { position: absolute; width: 100%; height: 1px; background: rgba(76, 175, 80, 0.15); }
+        .radar-line-v { position: absolute; width: 1px; height: 100%; background: rgba(76, 175, 80, 0.15); }
+
+        .radar-sweep {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, rgba(76,175,80,0.15) 0%, transparent 50%);
+            transform-origin: center;
+            animation: sweep 4s infinite linear;
+            pointer-events: none;
+        }
+        @keyframes sweep {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .pin {
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            box-shadow: 0 0 10px rgba(255,255,255,0.5);
+            transition: all 0.3s ease;
+        }
+        .user-pin {
+            background: #2196F3;
+            box-shadow: 0 0 15px #2196F3;
+            display: none;
+        }
+        .cache-pin {
+            background: #ff5722;
+            box-shadow: 0 0 12px #ff5722;
+        }
+        .cache-pin.unlocked {
+            background: #4caf50;
+            box-shadow: 0 0 15px #4caf50;
+        }
+
+        #info-panel {
+            height: 45vh;
+            background: #222;
+            padding: 15px;
+            overflow-y: auto;
+        }
+        h2 {
+            font-size: 1.2rem;
+            margin-bottom: 12px;
+            color: #4caf50;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .cache-card {
+            background: #333;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            border-left: 4px solid #ff5722;
+        }
+        .cache-card.unlocked-card {
+            border-left: 4px solid #4caf50;
+        }
+        .cache-name {
+            font-weight: bold;
+            font-size: 0.95rem;
+            color: #fff;
+        }
+        .cache-desc {
+            font-size: 0.85rem;
+            margin-top: 6px;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .desc-locked {
+            background: #4a1515;
+            color: #ff9800;
+            border: 1px solid #ff5722;
+        }
+        .desc-unlocked {
+            background: #1b5e20;
+            color: #a5d6a7;
+            border: 1px solid #4caf50;
+        }
+        .cache-distance {
+            font-size: 0.85rem;
+            color: #888;
+            margin-top: 3px;
+        }
+        .sim-btn {
+            background: #ff9800;
+            color: black;
+            border: none;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 6px;
+            text-transform: uppercase;
+        }
+        #gps-btn {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            right: 15px;
+            z-index: 999;
+            background: #4caf50;
+            color: white;
+            border: none;
+            padding: 14px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.9rem;
+            text-align: center;
+            transition: background 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+    <button id="gps-btn" onclick="startEchteGPS()">Live GPS inschakelen 📍</button>
+    
+    <div id="radar-screen">
+        <div class="radar-sweep"></div>
+        <div class="radar-ring ring-1"></div>
+        <div class="radar-ring ring-2"></div>
+        <div class="radar-ring ring-3"></div>
+        <div class="radar-line-h"></div>
+        <div class="radar-line-v"></div>
+        
+        <div id="user-marker" class="pin user-pin" style="top: 50%; left: 50%;"></div>
+        
+        <div id="pin-0" class="pin cache-pin" style="display: none;"></div>
+        <div id="pin-1" class="pin cache-pin" style="display: none;"></div>
+        <div id="pin-2" class="pin cache-pin" style="display: none;"></div>
+    </div>
+    
+    <div id="info-panel">
+        <h2>Geocaches in de buurt</h2>
+        <div id="cache-lijst">Klik bovenaan op de knop om te starten...</div>
+    </div>
+
+    <script>
+        let liveLat = null;
+        let liveLng = null;
+        let gpsActief = false;
+        let gpsTimeoutTimer = null;
+        
+        const LOCATIE_STRAAL_LIMIET = 150; 
+
+        const leeuwardenLat = 53.2019;
+        const leeuwardenLng = 5.7942;
+
+        const caches = [
+            { id: 0, name: "De Scheve Toren Schat", lat: 53.2025, lng: 5.7925, hint: "🔑 HINT: Zoek in de holle ruimte achter de grote eikenboom rondom de Oldehove!" },
+            { id: 1, name: "Prinsentuin Micro", lat: 53.2052, lng: 5.7940, hint: "🔑 HINT: Kijk onder de houten planken van de derde aanlegsteiger vanaf het oosten." },
+            { id: 2, name: "Blokhuispoort Cache", lat: 53.2010, lng: 5.8035, hint: "🔑 HINT: Achter het loszittende ventilatierooster vlakbij de oude hoofdingang laag bij de grond." }
+        ];
+
+        function toonStatusOpKnop(tekst, kleur) {
+            const btn = document.getElementById('gps-btn');
+            btn.style.backgroundColor = kleur;
+            btn.innerHTML = tekst;
+        }
+
+        function startEchteGPS() {
+            const btn = document.getElementById('gps-btn');
+            toonStatusOpKnop("GPS opstarten... Een moment.", "#ff9800");
+
+            gpsTimeoutTimer = setTimeout(() => {
+                if (!gpsActief) {
+                    toonStatusOpKnop("⚠️ GPS geblokkeerd door browser. Klik hier voor handmatige Demo modus 📡", "#d32f2f");
+                    btn.onclick = activeerDemoModus;
+                }
+            }, 4000);
+
+            if (!navigator.geolocation) {
+                toonStatusOpKnop("⚠️ GPS niet ondersteund door deze browser.", "#d32f2f");
+                return;
+            }
+
+            navigator.geolocation.watchPosition(
+                (position) => {
+                    clearTimeout(gpsTimeoutTimer);
+                    liveLat = position.coords.latitude;
+                    liveLng = position.coords.longitude;
+                    gpsActief = true;
+
+                    document.getElementById('user-marker').style.display = 'block';
+                    toonStatusOpKnop("GPS Live Tracking Actief 📡", "#2196F3");
+                    
+                    updateRadarScherm();
+                    updateLijst();
+                },
+                (error) => {
+                    clearTimeout(gpsTimeoutTimer);
+                    toonStatusOpKnop("⚠️ GPS geblokkeerd. Klik hier voor handmatige Demo modus 📡", "#d32f2f");
+                    btn.onclick = activeerDemoModus;
+                },
+                { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
+            );
+        }
+
+        function activeerDemoModus() {
+            clearTimeout(gpsTimeoutTimer);
+            liveLat = leeuwardenLat;
+            liveLng = leeuwardenLng;
+            gpsActief = true;
+
+            document.getElementById('user-marker').style.display = 'block';
+            toonStatusOpKnop("Demo Modus Actief (Leeuwarden) 📡", "#9c27b0");
+            
+            updateRadarScherm();
+            updateLijst();
+        }
+
+        function simuleerStap(cacheId) {
+            const target = caches[cacheId];
+            liveLat = target.lat - 0.0003;
+            liveLng = target.lng - 0.0003;
+            
+            updateRadarScherm();
+            updateLijst();
+        }
+
+        function berekenAfstand(lat1, lon1, lat2, lon2) {
+            const R = 6371000; 
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        function updateRadarScherm() {
+            if (!gpsActief) return;
+
+            caches.forEach((cache) => {
+                const pin = document.getElementById(`pin-${cache.id}`);
+                if (!pin) return;
+
+                const meter = berekenAfstand(liveLat, liveLng, cache.lat, cache.lng);
+                
+                if (meter > 2000) {
+                    pin.style.display = 'none'; 
+                } else {
+                    pin.style.display = 'block';
+                    const dLat = cache.lat - liveLat;
+                    const dLng = cache.lng - liveLng;
+                    const hoek = Math.atan2(dLng, dLat); 
+                    const afstandPixels = Math.min(meter * 0.18, 200); 
+                    const topPos = 50 - (Math.cos(hoek) * (afstandPixels / 4.5)); 
+                    const leftPos = 50 + (Math.sin(hoek) * (afstandPixels / 4.5));
+                    
+                    pin.style.top = `${topPos}%`;
+                    pin.style.left = `${leftPos}%`;
+                }
+            });
+        }
+
+        function updateLijst() {
+            const lijst = document.getElementById('cache-lijst');
+            lijst.innerHTML = '';
+
+            caches.forEach((cache) => {
+                let afstandTekst = "Wachten op GPS-activeringsknop...";
+                let binnenBereik = false;
+                let meter = 0;
+                
+                if (gpsActief) {
+                    meter = berekenAfstand(liveLat, liveLng, cache.lat, cache.lng);
+                    afstandTekst = `${Math.round(meter)} meter van je vandaan`;
+                    binnenBereik = meter <= LOCATIE_STRAAL_LIMIET;
+                }
+
+                const card = document.createElement('div');
+                card.className = `cache-card ${binnenBereik ? 'unlocked-card' : ''}`;
+                
+                const pin = document.getElementById(`pin-${cache.id}`);
+                if (pin) {
+                    if (binnenBereik) pin.classList.add('unlocked');
+                    else pin.classList.remove('unlocked');
+                }
+
+                let hintHTML = '';
+                if (gpsActief) {
+                    if (binnenBereik) {
+                        hintHTML = `<div class="cache-desc desc-unlocked">🎉 <b>Binnen bereik!</b><br>${cache.hint}</div>`;
+                    } else {
+                        hintHTML = `<div class="cache-desc desc-locked">🔒 <b>Hint vergrendeld</b><br>Loop nog ${Math.round(meter - LOCATIE_STRAAL_LIMIET)} meter dichterbij om de hint te onthullen.</div>`;
+                    }
+                }
+
+                card.innerHTML = `
+                    <div class="cache-name">🔍 ${cache.name}</div>
+                    <div class="cache-distance">${afstandTekst}</div>
+                    ${hintHTML}
+                    ${gpsActief && !binnenBereik ? `<button class="sim-btn" onclick="simuleerStap(${cache.id})">Simuleer stappen naar deze cache 🚶‍♂️</button>` : ''}
+                `;
+                lijst.appendChild(card);
+            });
+        }
+
+        updateLijst();
+    </script>
+</body>
+</html>
